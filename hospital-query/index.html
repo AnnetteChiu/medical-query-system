@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>醫療資訊查詢系統</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; }
+    .nav { background: #0066cc; display: flex; gap: 4px; padding: 12px 24px; }
+    .nav button { background: transparent; color: #fff; border: 2px solid transparent; border-radius: 4px; padding: 8px 20px; font-size: 15px; cursor: pointer; }
+    .nav button.active { border-color: #fff; background: rgba(255,255,255,0.15); }
+    .page { display: none; padding: 24px; max-width: 800px; margin: 0 auto; }
+    .page.active { display: block; }
+    h1 { margin-bottom: 20px; font-size: 22px; }
+    .search-bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    input, select { padding: 8px 12px; font-size: 15px; border: 1px solid #ccc; border-radius: 4px; }
+    input { flex: 1; min-width: 200px; }
+    button.btn { padding: 8px 20px; font-size: 15px; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    button.btn:hover { background: #0052a3; }
+    .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 14px; margin-bottom: 10px; cursor: pointer; transition: box-shadow 0.15s; }
+    .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .card h3 { font-size: 16px; margin-bottom: 6px; }
+    .card p { font-size: 14px; color: #555; margin: 2px 0; }
+    .tag { display: inline-block; background: #e0f0ff; color: #0066cc; border-radius: 3px; padding: 2px 8px; font-size: 12px; margin-right: 6px; }
+    .warn { background: #fff3cd; border-radius: 4px; padding: 8px 12px; margin-bottom: 6px; font-size: 14px; }
+    .detail { background: #fff; border: 1px solid #aaa; border-radius: 6px; padding: 16px; margin-top: 16px; }
+    .detail h2 { margin-bottom: 10px; }
+    .detail ul { padding-left: 20px; margin: 6px 0 12px; }
+    #status, #drug-status { color: #888; margin-bottom: 12px; font-size: 14px; }
+    .pagination { display: flex; gap: 8px; margin-top: 16px; align-items: center; }
+  </style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="active" onclick="showPage('hospital')">🏥 醫療院所查詢</button>
+  <button onclick="showPage('drug')">💊 藥物查詢</button>
+</div>
+
+<!-- 醫療院所 -->
+<div id="page-hospital" class="page active">
+  <h1>健保醫療院所查詢</h1>
+  <div class="search-bar">
+    <input id="keyword" placeholder="輸入醫院名稱或地址..." onkeydown="if(event.key==='Enter')searchHospital()" />
+    <select id="city">
+      <option value="">全部縣市</option>
+      <option>台北市</option><option>新北市</option><option>桃園市</option>
+      <option>台中市</option><option>台南市</option><option>高雄市</option>
+      <option>基隆市</option><option>新竹市</option><option>嘉義市</option>
+    </select>
+    <select id="type">
+      <option value="">全部類型</option>
+      <option value="1">醫學中心</option><option value="2">區域醫院</option>
+      <option value="3">地區醫院</option><option value="4">診所</option>
+      <option value="5">藥局</option>
+    </select>
+    <button class="btn" onclick="searchHospital()">搜尋</button>
+  </div>
+  <div id="status"></div>
+  <div id="hospital-results"></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- 藥物查詢 -->
+<div id="page-drug" class="page">
+  <h1>藥物查詢</h1>
+  <div class="search-bar">
+    <input id="drug-keyword" placeholder="輸入藥名搜尋..." onkeydown="if(event.key==='Enter')searchDrug()" />
+    <button class="btn" onclick="searchDrug()">搜尋</button>
+  </div>
+  <div id="drug-status"></div>
+  <div id="drug-results"></div>
+  <div id="drug-detail"></div>
+</div>
+
+<script>
+  // --- 頁籤切換 ---
+  function showPage(name) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    event.target.classList.add('active');
+  }
+
+  // --- 醫療院所 ---
+  const TYPE_MAP = {'1':'醫學中心','2':'區域醫院','3':'地區醫院','4':'診所','5':'藥局','6':'居家護理','7':'康復之家','8':'助產所','9':'檢驗所'};
+
+  async function searchHospital(page = 1) {
+    const keyword = document.getElementById('keyword').value.trim();
+    const city = document.getElementById('city').value;
+    const type = document.getElementById('type').value;
+    document.getElementById('status').textContent = '查詢中...';
+    document.getElementById('hospital-results').innerHTML = '';
+    document.getElementById('pagination').innerHTML = '';
+    try {
+      const params = new URLSearchParams({ rId: 'A21030000I-D21005-001', page, pageSize: 20 });
+      if (keyword) params.append('HOSP_NAME', keyword);
+      if (city) params.append('CNTY', city);
+      if (type) params.append('HOSP_GRADE', type);
+      const res = await fetch(`https://info.nhi.gov.tw/IODE0000/IODE0000S06?${params}`);
+      const data = await res.json();
+      const records = data.result?.records || [];
+      const total = data.result?.count || records.length;
+      document.getElementById('status').textContent = `共找到 ${total} 筆，第 ${page} 頁`;
+      document.getElementById('hospital-results').innerHTML = records.map(r => `
+        <div class="card">
+          <h3>${r.HOSP_NAME || '-'} <span class="tag">${TYPE_MAP[r.HOSP_GRADE] || '-'}</span></h3>
+          <p>📍 ${r.CNTY || ''}${r.TOWN || ''} ${r.HOSP_ADDR || '-'}</p>
+          <p>📞 ${r.HOSP_TEL || '-'}</p>
+        </div>`).join('');
+      const totalPages = Math.ceil(total / 20);
+      if (totalPages > 1) {
+        document.getElementById('pagination').innerHTML =
+          (page > 1 ? `<button class="btn" onclick="searchHospital(${page-1})">上一頁</button>` : '') +
+          `<span>${page} / ${totalPages}</span>` +
+          (page < totalPages ? `<button class="btn" onclick="searchHospital(${page+1})">下一頁</button>` : '');
+      }
+    } catch(e) {
+      document.getElementById('status').textContent = '查詢失敗，請稍後再試';
+    }
+  }
+
+  // --- 藥物資料 ---
+  const DRUGS = [
+    { id:1, name:'阿斯匹靈 (Aspirin)', description:'止痛、退燒、抗發炎藥物', dosage:'成人：每次 325–650mg，每4–6小時一次，每日不超過 4g', side_effects:['胃部不適','出血風險','耳鳴'] },
+    { id:2, name:'布洛芬 (Ibuprofen)', description:'非類固醇消炎止痛藥', dosage:'成人：每次 200–400mg，每4–6小時一次，每日不超過 1200mg', side_effects:['胃痛','噁心','頭暈'] },
+    { id:3, name:'華法林 (Warfarin)', description:'抗凝血劑', dosage:'依個人 INR 值由醫師調整，通常每日 2–10mg，需定期抽血監測', side_effects:['出血','瘀傷','頭痛'], food_interactions:['深綠色蔬菜（菠菜、花椰菜）— 含維生素K，會降低藥效','葡萄柚 — 影響藥物代謝','酒精 — 增加出血風險'] },
+    { id:4, name:'普拿疼 (Paracetamol)', description:'退燒止痛藥，適用於輕至中度疼痛及發燒，是最常見的非處方止痛藥之一', dosage:'成人：每次 500–1000mg，每4–6小時一次，每日不超過 4g', side_effects:['肝臟損傷（過量）','噁心','嘔吐','皮膚過敏反應','腎臟損傷（長期大量使用）'] },
+    { id:5, name:'二甲雙胍 (Metformin)', description:'第二型糖尿病用藥', dosage:'成人起始劑量：每次 500mg，每日2次，隨餐服用；最大劑量每日 2550mg', side_effects:['腸胃不適','噁心','腹瀉'], food_interactions:['酒精 — 增加乳酸酸中毒風險','高糖食物 — 影響血糖控制效果'] },
+    { id:6, name:'贊安諾 (Alprazolam)', description:'苯二氮平類藥物，用於治療焦慮症與恐慌症', dosage:'成人：每次 0.25–0.5mg，每日3次；依醫師指示調整，最大劑量每日 4mg', side_effects:['嗜睡','頭暈','記憶障礙','依賴性','呼吸抑制'] },
+  ];
+  const INTERACTIONS = [
+    { a:1, b:3, desc:'Aspirin 與 Warfarin 合用會增加出血風險' },
+    { a:2, b:3, desc:'Ibuprofen 與 Warfarin 合用會增加出血風險' },
+    { a:6, b:4, desc:'贊安諾與普拿疼合用可能加重中樞神經抑制' },
+    { a:6, b:3, desc:'贊安諾與 Warfarin 合用可能影響抗凝血效果' },
+    { a:4, b:3, desc:'普拿疼與 Warfarin 長期合用可能增強抗凝血效果，提高出血風險' },
+    { a:4, b:5, desc:'普拿疼與 Metformin 合用需注意腎功能，腎功能不佳者風險較高' },
+  ];
+
+  function searchDrug() {
+    const q = document.getElementById('drug-keyword').value.trim().toLowerCase();
+    document.getElementById('drug-detail').innerHTML = '';
+    if (!q) { document.getElementById('drug-status').textContent = '請輸入藥名'; return; }
+    const results = DRUGS.filter(d => d.name.toLowerCase().includes(q));
+    document.getElementById('drug-status').textContent = `找到 ${results.length} 筆`;
+    document.getElementById('drug-results').innerHTML = results.map(d => `
+      <div class="card" onclick="showDrug(${d.id})">
+        <h3>${d.name}</h3>
+        <p>${d.description}</p>
+      </div>`).join('') || '<p>查無資料</p>';
+  }
+
+  function showDrug(id) {
+    const drug = DRUGS.find(d => d.id === id);
+    if (!drug) return;
+    const interactions = INTERACTIONS
+      .filter(i => i.a === id || i.b === id)
+      .map(i => {
+        const otherId = i.a === id ? i.b : i.a;
+        const other = DRUGS.find(d => d.id === otherId);
+        return `<div class="warn">⚠️ <strong>${other?.name}</strong>：${i.desc}</div>`;
+      }).join('');
+    const foodSection = drug.food_interactions?.length
+      ? `<h3>食物交互作用</h3>${drug.food_interactions.map(f => `<div class="warn">🍽️ ${f}</div>`).join('')}`
+      : '';
+    const dosageSection = drug.dosage
+      ? `<h3 style="margin-top:12px">建議劑量</h3><div class="warn" style="background:#e8f5e9">💊 ${drug.dosage}</div><p style="font-size:12px;color:#888;margin-top:4px">※ 實際用藥請遵照醫師或藥師指示</p>`
+      : '';
+    document.getElementById('drug-detail').innerHTML = `
+      <div class="detail">
+        <h2>${drug.name}</h2>
+        <p>${drug.description}</p>
+        ${dosageSection}
+        <h3 style="margin-top:12px">副作用</h3>
+        <ul>${drug.side_effects.map(e => `<li>${e}</li>`).join('')}</ul>
+        <h3>藥物交互作用</h3>
+        ${interactions || '<p>無已知交互作用</p>'}
+        ${foodSection}
+      </div>`;
+  }
+
+  // 預設載入醫院
+  searchHospital();
+</script>
+</body>
+</html>
